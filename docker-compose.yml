@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # PostgreSQL база данных
+  postgres:
+    image: postgres:15-alpine
+    container_name: humanology_postgres
+    environment:
+      POSTGRES_DB: humanology_bot
+      POSTGRES_USER: bot_user
+      POSTGRES_PASSWORD: bot_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - bot_network
+    restart: unless-stopped
+
+  # Redis для кэширования
+  redis:
+    image: redis:7-alpine
+    container_name: humanology_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - bot_network
+    restart: unless-stopped
+
+  # Основное приложение
+  app:
+    build: .
+    container_name: humanology_bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - DB_DSN=postgresql+asyncpg://bot_user:bot_password@postgres:5432/humanology_bot
+      - SITE_API_URL=${SITE_API_URL}
+      - SITE_API_KEY=${SITE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STORAGE_PATH=./storage
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
+    volumes:
+      - ./storage:/app/storage
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - bot_network
+    restart: unless-stopped
+
+  # Nginx для проксирования и TLS
+  nginx:
+    image: nginx:alpine
+    container_name: humanology_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - app
+    networks:
+      - bot_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  bot_network:
+    driver: bridge
